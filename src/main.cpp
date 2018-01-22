@@ -7,9 +7,9 @@ int main() {
 	Cpu cpu;
 
 	try {
-		cpu.loadRom("tests/cpu_instrs.gb");
+		cpu.loadRom("DMG_ROM.bin");
 		cpu.run();
-	} catch (std::exception e) {
+	} catch (std::runtime_error e) {
 		std::cerr << e.what() << std::endl;
 	}
 }
