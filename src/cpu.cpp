@@ -1,23 +1,14 @@
 #include "cpu.h"
 
 #include <stdexcept>
-#include <memory>
+
+#include "util.h"
 
 #define dprintf(...) {if (stepByStep) printf(__VA_ARGS__);}
 
-static inline uint16_t convertTo16(uint8_t a, uint8_t b) {
-	return a | (b << 8);
-}
-
-static inline void convertTo8(uint16_t in, uint8_t& a, uint8_t& b) {
-	a = in & 0xff;
-	b = (in >> 8) & 0xff;
-}
-
-static inline uint8_t calculateCarryBits8(uint8_t a, uint8_t b) {
-	uint8_t res = a + b;
-	return (a & ~res) | (b & ~res) | (a & b);
-}
+Cpu::Cpu(Ram& ram)
+	: ram(ram)
+{}
 
 void Cpu::handleDebugger() {
 	if (stepByStep) {
@@ -37,7 +28,7 @@ void Cpu::handleDebugger() {
 					scanf("%hx", &addr);
 					printf("Value: ");
 					scanf("%hhx%*c", &value);
-					writeMemory8(addr, value);
+					ram.writeMemory8(addr, value);
 					break;
 				}
 
@@ -45,7 +36,7 @@ void Cpu::handleDebugger() {
 					uint16_t addr;
 					printf("Addr: ");
 					scanf("%hx%*c", &addr);
-					printf("Value: %hhx", readMemory8(addr));
+					printf("Value: %hhx", ram.readMemory8(addr));
 					break;
 				}
 
@@ -60,82 +51,12 @@ void Cpu::handleDebugger() {
 	}
 }
 
-void Cpu::loadRom(const std::string& fileName) {
-	std::unique_ptr<FILE, decltype(&fclose)> file(fopen(fileName.c_str(), "rb"), &fclose);
-
-	if (!file) {
-		throw std::runtime_error("Rom " + fileName + " not found!");
-	}
-
-	fread(ram, 1, 0x8000, file.get());
-}
-
 void Cpu::init() {
 	pc = 0x0;
 }
 
-uint8_t Cpu::readMemory8(uint16_t addr) {
-	dprintf("readMemory8 %hx %hhx\n", addr, ram[addr]);
-
-	if (addr >= 0xE000 && addr < 0xFE00) {
-		addr -= 0x2000;
-	}
-
-	return ram[addr];
-}
-
-void Cpu::writeMemory8(uint16_t addr, uint8_t x) {
-	dprintf("writeMemory8 %hx %hhx\n", addr, x);
-
-	if (addr >= 0xE000 && addr < 0xFE00) {
-		addr -= 0x2000;
-	}
-
-	ram[addr] = x;
-}
-
-uint16_t Cpu::readMemory16(uint16_t addr) {
-	dprintf("readMemory16 %hx %hx %hx\n", addr, ram[addr], ram[addr+1]);
-
-	if (addr >= 0xE000 && addr < 0xFE00) {
-		addr -= 0x2000;
-	}
-
-	return convertTo16(ram[addr], ram[addr+1]);
-}
-
-void Cpu::writeMemory16(uint16_t addr, uint16_t x) {
-	dprintf("writeMemory16 %hx %hhx\n", addr, x);
-
-	if (addr >= 0xE000 && addr < 0xFE00) {
-		addr -= 0x2000;
-	}
-
-	convertTo8(x, ram[addr], ram[addr+1]);
-}
-
-uint16_t Cpu::readMemory16_inverted(uint16_t addr) {
-	dprintf("readMemory16 %hx %hx %hx\n", addr, ram[addr+1], ram[addr]);
-
-	if (addr >= 0xE000 && addr < 0xFE00) {
-		addr -= 0x2000;
-	}
-
-	return convertTo16(ram[addr+1], ram[addr]);
-}
-
-void Cpu::writeMemory16_inverted(uint16_t addr, uint16_t x) {
-	dprintf("writeMemory16 %hx %hhx\n", addr, x);
-
-	if (addr >= 0xE000 && addr < 0xFE00) {
-		addr -= 0x2000;
-	}
-
-	convertTo8(x, ram[addr+1], ram[addr]);
-}
-
 uint32_t Cpu::runInstruction() {
-	uint8_t opcode = readMemory8(pc++);
+	uint8_t opcode = ram.readMemory8(pc++);
 
 	dprintf("Addr %04hx Code %02hhx\n", pc-1, opcode);
 	dumpRegs();
@@ -148,7 +69,7 @@ uint32_t Cpu::runInstruction() {
 
 		case 0xC3: { //JP nn
 			dprintf("JP nn\n");
-			pc = readMemory16(pc);
+			pc = ram.readMemory16(pc);
 			printf("*** %hx\n", pc);
 			return 16;
 		}
@@ -165,7 +86,7 @@ uint32_t Cpu::runInstruction() {
 		case 0x2E: //LD L, n
 		{ 
 			dprintf("LD\n");
-			regs[(opcode - 0x06) / 8] = readMemory8(pc++);
+			regs[(opcode - 0x06) / 8] = ram.readMemory8(pc++);
 			return 8;
 		}
 
@@ -214,7 +135,7 @@ uint32_t Cpu::runInstruction() {
 		case 0x11: { //LD DE, nn
 			dprintf("LD DE\n");
 			//TODO: direct assignment
-			uint16_t de = readMemory16(pc);
+			uint16_t de = ram.readMemory16(pc);
 			pc += 2;
 			convertTo8(de, d, e);
 			return 12;
@@ -236,26 +157,26 @@ uint32_t Cpu::runInstruction() {
 		case 0x1A: { //LD A, (DE)
 			dprintf("LD A\n");
 			uint16_t de = convertTo16(e, d);
-			a = readMemory8(de);
+			a = ram.readMemory8(de);
 			return 8;
 		}
 
 		case 0x3E: { //LD A, #
 			dprintf("LD A\n");
-			a = readMemory8(pc++);
+			a = ram.readMemory8(pc++);
 			return 8;
 		}
 
 		case 0x18: { //JR n
 			dprintf("JR\n");
-			int8_t n = readMemory8(pc++);
+			int8_t n = ram.readMemory8(pc++);
 			pc += n;
 			return 12;
 		}
 
 		case 0x20: { //JR NZ n
 			dprintf("JR NZ\n");
-			int8_t n = readMemory8(pc++);
+			int8_t n = ram.readMemory8(pc++);
 
 			if (!(f & Z_FLAG)) {
 				dprintf(">>>> Jump Taken\n");
@@ -269,7 +190,7 @@ uint32_t Cpu::runInstruction() {
 
 		case 0x28: { //JR Z n
 			dprintf("JR Z\n");
-			int8_t n = readMemory8(pc++);
+			int8_t n = ram.readMemory8(pc++);
 
 			if (f & Z_FLAG) {
 				dprintf(">>>> Jump Taken\n");
@@ -283,7 +204,7 @@ uint32_t Cpu::runInstruction() {
 
 		case 0x30: { //JR NC n
 			dprintf("JR NC\n");
-			int8_t n = readMemory8(pc++);
+			int8_t n = ram.readMemory8(pc++);
 
 			if (!(f & C_FLAG)) {
 				dprintf(">>>> Jump Taken\n");
@@ -297,7 +218,7 @@ uint32_t Cpu::runInstruction() {
 
 		case 0x38: { //JR C n
 			dprintf("JR C\n");
-			int8_t n = readMemory8(pc++);
+			int8_t n = ram.readMemory8(pc++);
 
 			if (f & C_FLAG) {
 				dprintf(">>>> Jump Taken\n");
@@ -311,7 +232,7 @@ uint32_t Cpu::runInstruction() {
 
 		case 0x21: { //LD hl nn
 			dprintf("LD HL nn\n");
-			uint16_t hl = readMemory16(pc);
+			uint16_t hl = ram.readMemory16(pc);
 			pc += 2;
 			convertTo8(hl, l, h);
 			return 12;
@@ -319,7 +240,7 @@ uint32_t Cpu::runInstruction() {
 
 		case 0x31: { //LD sp nn
 			dprintf("LD sp nn\n");
-			sp = readMemory16(pc);
+			sp = ram.readMemory16(pc);
 			pc += 2;
 			return 12;
 		}
@@ -339,7 +260,7 @@ uint32_t Cpu::runInstruction() {
 		case 0x32: { //LD (HL-), A
 			dprintf("LD (HL-) A\n");
 			uint16_t hl = convertTo16(l, h);
-			writeMemory8(hl--, a);
+			ram.writeMemory8(hl--, a);
 			convertTo8(hl, l, h);
 			return 8;
 		}
@@ -347,14 +268,14 @@ uint32_t Cpu::runInstruction() {
 		case 0x77: { //LD (HL), A
 			dprintf("LD (HL) A\n");
 			uint16_t hl = convertTo16(l, h);
-			writeMemory8(hl, a);
+			ram.writeMemory8(hl, a);
 			return 8;
 		}
 
 		case 0x22: { //LD (HL+), A
 			dprintf("LD (HL+) A\n");
 			uint16_t hl = convertTo16(l, h);
-			writeMemory8(hl++, a);
+			ram.writeMemory8(hl++, a);
 			convertTo8(hl, l, h);
 			return 8;
 		}
@@ -362,7 +283,7 @@ uint32_t Cpu::runInstruction() {
 		case 0x2A: { //LD A, (HL+)
 			dprintf("LD A (HL+)\n");
 			uint16_t hl = convertTo16(l, h);
-			a = readMemory8(hl++);
+			a = ram.readMemory8(hl++);
 			convertTo8(hl, l, h);
 			return 8;
 		}
@@ -437,12 +358,12 @@ uint32_t Cpu::runInstruction() {
 
 		case 0xCD: { //CALL nn
 			dprintf("CALL\n");
-			uint16_t nn = readMemory16(pc);
+			uint16_t nn = ram.readMemory16(pc);
 			dprintf(">> Call function %hx\n", nn);
 			pc += 2;
 			
 			sp -= 2;
-			writeMemory16_inverted(sp, pc);
+			ram.writeMemory16_inverted(sp, pc);
 			dprintf("   Save ret addr %hx\n", pc);
 			pc = nn;
 			return 24;
@@ -450,7 +371,7 @@ uint32_t Cpu::runInstruction() {
 
 		case 0xC9: { //RET
 			dprintf("RET\n");
-			pc = readMemory16_inverted(sp);
+			pc = ram.readMemory16_inverted(sp);
 			sp += 2;
 			
 			dprintf(">> Return to %hx\n", pc);
@@ -459,21 +380,21 @@ uint32_t Cpu::runInstruction() {
 
 		case 0xE0: { //LDH (n), A
 			dprintf("LDH (n) A\n");
-			uint8_t n = readMemory8(pc++);
-			writeMemory8(0xFF00 + n, a);
+			uint8_t n = ram.readMemory8(pc++);
+			ram.writeMemory8(0xFF00 + n, a);
 			return 12;
 		}
 
 		case 0xF0: { //LDH A, (n)
 			dprintf("LDH A (n)\n");
-			uint8_t n = readMemory8(pc++);
-			a = readMemory8(0xFF00 + n);
+			uint8_t n = ram.readMemory8(pc++);
+			a = ram.readMemory8(0xFF00 + n);
 			return 12;
 		}
 
 		case 0xE2: { //LDH
 			dprintf("LDH C\n");
-			writeMemory8(0xFF00 + c, a);
+			ram.writeMemory8(0xFF00 + c, a);
 			return 8;
 		}
 
@@ -483,7 +404,7 @@ uint32_t Cpu::runInstruction() {
 		case 0x12: { //LD (DE), A
 			dprintf("LDH (DE) A\n");
 			uint16_t de = convertTo16(e, d);
-			writeMemory8(de, a);
+			ram.writeMemory8(de, a);
 			return 8;
 		}
 
@@ -500,8 +421,8 @@ uint32_t Cpu::runInstruction() {
 		{
 			dprintf("PUSH\n");
 			uint8_t idx = (opcode - 0xC5) / 0x10;
-			writeMemory8(--sp, regs[idx+1]);
-			writeMemory8(--sp, regs[idx]);
+			ram.writeMemory8(--sp, regs[idx+1]);
+			ram.writeMemory8(--sp, regs[idx]);
 			return 16;
 		}
 
@@ -512,8 +433,8 @@ uint32_t Cpu::runInstruction() {
 		{
 			dprintf("POP\n");
 			uint8_t idx = (opcode - 0xC1) / 0x10;
-			regs[idx] = readMemory8(sp++);
-			regs[idx+1] = readMemory8(sp++);
+			regs[idx] = ram.readMemory8(sp++);
+			regs[idx+1] = ram.readMemory8(sp++);
 			return 12;
 		}
 
@@ -530,7 +451,7 @@ uint32_t Cpu::runInstruction() {
 
 		case 0xFE: { //CP A, #
 			dprintf("CP A, n\n");
-			uint8_t n = readMemory8(pc++);
+			uint8_t n = ram.readMemory8(pc++);
 
 			f &= ~(Z_FLAG | H_FLAG | C_FLAG);
 			f |= N_FLAG | Z_FLAG * (a == n) | H_FLAG * ((a&0xF) < (n&0xf)) | C_FLAG * (a < n);
@@ -541,9 +462,9 @@ uint32_t Cpu::runInstruction() {
 
 		case 0xEA: { //LD (nn), A
 			dprintf("LD (nn), A\n");
-			uint16_t nn = readMemory16(pc);
+			uint16_t nn = ram.readMemory16(pc);
 			pc += 2;
-			writeMemory8(nn, a);
+			ram.writeMemory8(nn, a);
 			return 16;
 		}
 
@@ -556,7 +477,7 @@ uint32_t Cpu::runInstruction() {
 }
 
 uint32_t Cpu::runLongInstruction() {
-	uint8_t opcode = readMemory8(pc++);
+	uint8_t opcode = ram.readMemory8(pc++);
 
 	dprintf(" opcode %02hhx\n", opcode);
 	// getchar();

@@ -2,6 +2,10 @@
 
 #include <stdexcept>
 
+Lcd::Lcd(Ram& ram)
+	: ram(ram)
+{}
+
 Lcd::~Lcd() {
 	SDL_DestroyWindow(window);
 	SDL_Quit();
