@@ -1,6 +1,6 @@
 #include "cpu.h"
 
-#include <exception>
+#include <stdexcept>
 #include <memory>
 
 #define dprintf(...) {if (stepByStep) printf(__VA_ARGS__);}

@@ -6,7 +6,7 @@
 OUTPUT_FILE := main
 ATTR_ALL := -MMD -Wall
 ATTR_GPP := -O2 -std=c++11
-ATTR_OUT :=
+ATTR_OUT := -lSDL2main -lSDL2
 ATTR_GCC :=
 
 LIB_FILES := $(shell find lib/ -name '*.a')
